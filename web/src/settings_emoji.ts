@@ -317,6 +317,27 @@ export function set_up(): void {
     // Populate emoji table
     populate_emoji();
 
+    // Handle editable emoji names
+    $(document).on("blur", ".editable-emoji-name", function() {
+        const $input = $(this);
+        const new_name = $input.val() as string;
+        const original_name = $input.data("original-name") as string;
+        
+        if (new_name !== original_name.replaceAll("_", " ") && new_name.trim() !== "") {
+            console.log(`Updating emoji name from "${original_name}" to "${new_name}"`);
+            // TODO: Add backend call to update emoji name
+            // For now, just update the data attribute
+            $input.data("original-name", new_name.replaceAll(" ", "_"));
+        }
+    });
+
+    // Handle Enter key on emoji name inputs
+    $(document).on("keypress", ".editable-emoji-name", function(e) {
+        if (e.which === 13) { // Enter key
+            $(this).blur(); // Trigger the blur event
+        }
+    });
+
     $(".admin_emoji_table").on("click", ".delete", function (e) {
         e.preventDefault();
         e.stopPropagation();

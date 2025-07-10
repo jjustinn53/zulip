@@ -1,7 +1,7 @@
 {{#with emoji}}
 <tr class="emoji_row" id="emoji_{{name}}" data-emoji-name="{{name}}">
     <td>
-        <span class="emoji_name">{{display_name}}</span>
+        <input type="text" class="emoji_name editable-emoji-name" value="{{display_name}}" data-original-name="{{name}}">
     </td>
     <td>
         <span class="emoji_image">

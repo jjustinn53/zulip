@@ -879,6 +879,27 @@ input[type="checkbox"] {
     vertical-align: middle;
 }
 
+.editable-emoji-name {
+    border: none;
+    background: transparent;
+    width: 100%;
+    font-family: inherit;
+    font-size: inherit;
+    padding: 2px 4px;
+
+    &:hover {
+        background-color: hsl(0deg 0% 95%);
+        border-radius: 3px;
+    }
+
+    &:focus {
+        background-color: hsl(0deg 0% 100%);
+        border: 1px solid hsl(200deg 100% 40%);
+        border-radius: 3px;
+        outline: none;
+    }
+}
+
 .add-new-linkifier-box,
 .add-new-playground-box {
     & button {
