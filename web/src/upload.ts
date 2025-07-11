@@ -42,7 +42,7 @@ export function get_translated_status(filename: string): string {
     return "[" + status + "]()";
 }
 
-type Config = ({mode: "compose"} | {mode: "edit"; row: number}) & {
+export type Config = ({mode: "compose"} | {mode: "edit"; row: number}) & {
     textarea: () => JQuery<HTMLTextAreaElement>;
     send_button: () => JQuery;
     banner_container: () => JQuery;

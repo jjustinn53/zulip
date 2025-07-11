@@ -1,4 +1,14 @@
 <form id="add-custom-emoji-form">
+  <div id="emoji_upload_area" class="emoji-drag-drop-area">
+    <input type="file" id="emoji_file_input"
+           name="emoji_file_input"
+           class="notvisible"
+           accept="image/*"
+           multiple>
+    <p class="drag-hint">
+        Drop an image here or click “Upload image or GIF”
+    </p>
+</div>
     <div>
         <input type="file" name="emoji_file_input" class="notvisible"
           id="emoji_file_input" value="{{t 'Upload image or GIF' }}"/>

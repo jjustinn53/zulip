@@ -20,6 +20,9 @@ import * as scroll_util from "./scroll_util.ts";
 import * as settings_data from "./settings_data.ts";
 import {current_user} from "./state_data.ts";
 import * as ui_report from "./ui_report.ts";
+// TEST 
+import {type Config, setup_upload} from "./upload.ts";
+// TEST
 import * as upload_widget from "./upload_widget.ts";
 import * as util from "./util.ts";
 
@@ -175,6 +178,46 @@ export function add_custom_emoji_post_render(): void {
 
     $preview_image.hide();
 
+    // Create a config for emoji upload drag-and-drop
+    const emoji_upload_config: Config = {
+        mode: "compose", // Reuse compose mode behavior
+        textarea: () => $<HTMLTextAreaElement>("#emoji_name"), // Fake textarea - we don't insert text
+        send_button: () => $("#add-custom-emoji-modal .dialog_submit_button"),
+        banner_container: () => $("#emoji_file_input_error").parent(),
+        upload_banner_identifier: (file_id) => `#emoji-upload-banner-${CSS.escape(file_id)}`,
+        upload_banner: (file_id) => $(`#emoji-upload-banner-${CSS.escape(file_id)}`),
+        upload_banner_cancel_button: (file_id) => $(`#emoji-upload-banner-${CSS.escape(file_id)} .upload_banner_cancel_button`),
+        upload_banner_hide_button: (file_id) => $(`#emoji-upload-banner-${CSS.escape(file_id)} .main-view-banner-close-button`),
+        upload_banner_message: (file_id) => $(`#emoji-upload-banner-${CSS.escape(file_id)} .upload_msg`),
+        file_input_identifier: () => "#emoji_file_input",
+        source: () => "emoji-file-input",
+        drag_drop_container: () => $("#add-custom-emoji-modal"),
+        markdown_preview_hide_button: () => $(), // Not applicable for emoji
+    };
+
+    // Set up drag-and-drop upload
+    const uppy_instance = setup_upload(emoji_upload_config);
+
+    // When files are successfully uploaded, update the UI
+    uppy_instance.on("upload-success", (file, response) => {
+        if (file && response.body) {
+            // Update file input to trigger existing validation
+            const mockEvent = new Event("input", { bubbles: true });
+            document.querySelector("#emoji_file_input")?.dispatchEvent(mockEvent);
+            
+            // Show preview
+            $placeholder_icon.hide();
+            $preview_image.show();
+            $preview_text.hide();
+            
+            // Enable submit button if name is also filled
+            if ($("#emoji_name").val() !== "") {
+                $("#add-custom-emoji-modal .dialog_submit_button").prop("disabled", false);
+            }
+        }
+    });
+
+    // Still use the upload widget for the basic file input functionality
     upload_widget.build_widget(
         get_file_input,
         $file_name_field,
