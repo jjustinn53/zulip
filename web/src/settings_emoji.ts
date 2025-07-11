@@ -157,12 +157,22 @@ export function populate_emoji(): void {
 export function add_custom_emoji_post_render(): void {
     $("#add-custom-emoji-modal .dialog_submit_button").prop("disabled", true);
 
-    $("#add-custom-emoji-form").on("input", "input", () => {
+    // Track whether we have a successful drag-and-drop upload
+    let hasDragDropUpload = false;
+
+    function updateSubmitButton(): void {
+        const fileInput = document.querySelector("#emoji_file_input");
+        const hasTraditionalFile = fileInput instanceof HTMLInputElement && fileInput.files && fileInput.files.length > 0;
+        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+        const hasFile = hasTraditionalFile || hasDragDropUpload;
+        
         $("#add-custom-emoji-modal .dialog_submit_button").prop(
             "disabled",
-            $("#emoji_name").val() === "" || $("#emoji_file_input").val() === "",
+            $("#emoji_name").val() === "" || !hasFile,
         );
-    });
+    }
+
+    $("#add-custom-emoji-form").on("input", "input", updateSubmitButton);
 
     const get_file_input = function (): JQuery<HTMLInputElement> {
         return $("#emoji_file_input");
@@ -179,9 +189,9 @@ export function add_custom_emoji_post_render(): void {
     $preview_image.hide();
 
     // Create a config for emoji upload drag-and-drop
-    const emoji_upload_config: Config = {
+        const emoji_upload_config: Config = {
         mode: "compose", // Reuse compose mode behavior
-        textarea: () => $<HTMLTextAreaElement>("#emoji_name"), // Fake textarea - we don't insert text
+        // textarea omitted - we don't want text insertion for emoji uploads
         send_button: () => $("#add-custom-emoji-modal .dialog_submit_button"),
         banner_container: () => $("#emoji_file_input_error").parent(),
         upload_banner_identifier: (file_id) => `#emoji-upload-banner-${CSS.escape(file_id)}`,
@@ -201,19 +211,23 @@ export function add_custom_emoji_post_render(): void {
     // When files are successfully uploaded, update the UI
     uppy_instance.on("upload-success", (file, response) => {
         if (file && response.body) {
-            // Update file input to trigger existing validation
-            const mockEvent = new Event("input", { bubbles: true });
-            document.querySelector("#emoji_file_input")?.dispatchEvent(mockEvent);
+            // Mark that we have a successful drag-and-drop upload
+            hasDragDropUpload = true;
+            
+            // Auto-fill emoji name with filename (without extension) if empty
+            const $emojiName = $("#emoji_name");
+            if ($emojiName.val() === "" && file?.name) {
+                const filenameWithoutExtension = file.name.replace(/\.[^/.]+$/, "");
+                $emojiName.val(filenameWithoutExtension);
+            }
             
             // Show preview
             $placeholder_icon.hide();
             $preview_image.show();
             $preview_text.hide();
             
-            // Enable submit button if name is also filled
-            if ($("#emoji_name").val() !== "") {
-                $("#add-custom-emoji-modal .dialog_submit_button").prop("disabled", false);
-            }
+            // Update submit button state
+            updateSubmitButton();
         }
     });
 
@@ -238,6 +252,9 @@ export function add_custom_emoji_post_render(): void {
         e.stopPropagation();
         e.preventDefault();
 
+        // Reset drag-and-drop upload state
+        hasDragDropUpload = false;
+        
         $("#add-custom-emoji-modal .dialog_submit_button").prop("disabled", true);
 
         $preview_image.hide();
@@ -302,6 +319,7 @@ function show_modal(): void {
         const formData = new FormData();
         const files = util.the($<HTMLInputElement>("input#emoji_file_input")).files;
         assert(files !== null);
+        
         for (const [i, file] of [...files].entries()) {
             formData.append("file-" + i, file);
         }

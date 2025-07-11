@@ -41,9 +41,9 @@ export function get_translated_status(filename: string): string {
     const status = $t({defaultMessage: "Uploading {filename}…"}, {filename});
     return "[" + status + "]()";
 }
-
+// ADDED EXPORT 
 export type Config = ({mode: "compose"} | {mode: "edit"; row: number}) & {
-    textarea: () => JQuery<HTMLTextAreaElement>;
+    textarea?: () => JQuery<HTMLTextAreaElement>; // Made optional for non-text upload scenarios
     send_button: () => JQuery;
     banner_container: () => JQuery;
     upload_banner_identifier: (file_id: string) => string;
@@ -229,13 +229,16 @@ export let upload_files = (
     for (const file of files) {
         let file_id;
         try {
-            compose_ui.insert_syntax_and_focus(
-                get_translated_status(file.name),
-                config.textarea(),
-                "block",
-                1,
-            );
-            compose_ui.autosize_textarea(config.textarea());
+            // Only insert text if textarea is provided (for compose/edit modes)
+            if (config.textarea) {
+                compose_ui.insert_syntax_and_focus(
+                    get_translated_status(file.name),
+                    config.textarea(),
+                    "block",
+                    1,
+                );
+                compose_ui.autosize_textarea(config.textarea());
+            }
             file_id = uppy.addFile({
                 source: config.source(),
                 name: file.name,
@@ -261,9 +264,11 @@ export let upload_files = (
         );
         // eslint-disable-next-line @typescript-eslint/no-loop-func
         config.upload_banner_cancel_button(file_id).on("click", () => {
-            compose_ui.replace_syntax(get_translated_status(file.name), "", config.textarea());
-            compose_ui.autosize_textarea(config.textarea());
-            config.textarea().trigger("focus");
+            if (config.textarea) {
+                compose_ui.replace_syntax(get_translated_status(file.name), "", config.textarea());
+                compose_ui.autosize_textarea(config.textarea());
+                config.textarea().trigger("focus");
+            }
 
             uppy.removeFile(file_id);
             hide_upload_banner(uppy, config, file_id);
@@ -423,7 +428,9 @@ export function setup_upload(config: Config): Uppy<ZulipMeta, TusBody> {
         const files = event.target.files;
         assert(files !== null);
         upload_files(uppy, config, files);
-        config.textarea().trigger("focus");
+        if (config.textarea) {
+            config.textarea().trigger("focus");
+        }
         event.target.value = "";
     });
 
@@ -534,21 +541,25 @@ export function setup_upload(config: Config): Uppy<ZulipMeta, TusBody> {
 
         const filtered_filename = file.name!.replaceAll("[", "").replaceAll("]", "");
         const syntax_to_insert = "[" + filtered_filename + "](" + file.meta.zulip_url + ")";
-        const $text_area = config.textarea();
-        const replacement_successful = compose_ui.replace_syntax(
-            // We need to replace the original file name, and not the
-            // possibly modified filename returned in the response by
-            // the server. file.meta.name remains unchanged by us
-            // unlike file.name
-            get_translated_status(file.meta.name),
-            syntax_to_insert,
-            $text_area,
-        );
-        if (!replacement_successful) {
-            compose_ui.insert_syntax_and_focus(syntax_to_insert, $text_area);
-        }
+        
+        // Only insert markdown syntax if textarea is provided (for compose/edit modes)
+        if (config.textarea) {
+            const $text_area = config.textarea();
+            const replacement_successful = compose_ui.replace_syntax(
+                // We need to replace the original file name, and not the
+                // possibly modified filename returned in the response by
+                // the server. file.meta.name remains unchanged by us
+                // unlike file.name
+                get_translated_status(file.meta.name),
+                syntax_to_insert,
+                $text_area,
+            );
+            if (!replacement_successful) {
+                compose_ui.insert_syntax_and_focus(syntax_to_insert, $text_area);
+            }
 
-        compose_ui.autosize_textarea($text_area);
+            compose_ui.autosize_textarea($text_area);
+        }
 
         // Hide upload status after waiting 100ms after the 1s transition to 100%
         // so that the user can see the progress bar at 100%.
@@ -601,14 +612,18 @@ export function setup_upload(config: Config): Uppy<ZulipMeta, TusBody> {
         // Hide the upload status banner on error so only the error banner shows
         hide_upload_banner(uppy, config, file.id);
         show_error_message(config, message, file.id);
-        compose_ui.replace_syntax(get_translated_status(file.name!), "", config.textarea());
-        compose_ui.autosize_textarea(config.textarea());
+        if (config.textarea) {
+            compose_ui.replace_syntax(get_translated_status(file.name!), "", config.textarea());
+            compose_ui.autosize_textarea(config.textarea());
+        }
     });
 
     uppy.on("restriction-failed", (file) => {
         assert(file !== undefined);
-        compose_ui.replace_syntax(get_translated_status(file.name!), "", config.textarea());
-        compose_ui.autosize_textarea(config.textarea());
+        if (config.textarea) {
+            compose_ui.replace_syntax(get_translated_status(file.name!), "", config.textarea());
+            compose_ui.autosize_textarea(config.textarea());
+        }
     });
 
     uppy.on("cancel-all", () => {
