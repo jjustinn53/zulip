@@ -323,11 +323,56 @@ export function set_up(): void {
         const new_name = $input.val() as string;
         const original_name = $input.data("original-name") as string;
         
+        // Check if already updating to prevent race conditions
+        if ($input.data("updating")) {
+            return;
+        }
+        
         if (new_name !== original_name.replaceAll("_", " ") && new_name.trim() !== "") {
+            const $row = $input.closest("tr");
+            const emoji_name = $row.attr("data-emoji-name")!;
+            
             console.log(`Updating emoji name from "${original_name}" to "${new_name}"`);
-            // TODO: Add backend call to update emoji name
-            // For now, just update the data attribute
-            $input.data("original-name", new_name.replaceAll(" ", "_"));
+            
+            // Mark as updating to prevent duplicate requests
+            $input.data("updating", true);
+            
+            // Make backend call to update emoji name
+            void channel.patch({
+                url: "/json/realm/emoji/" + encodeURIComponent(emoji_name),
+                data: {
+                    name: new_name.trim(),
+                },
+                success() {
+                    // Update the data attribute and row data on success
+                    $input.data("original-name", new_name.replaceAll(" ", "_"));
+                    $row.attr("data-emoji-name", new_name.replaceAll(" ", "_"));
+                    
+                    // Clear updating flag
+                    $input.removeData("updating");
+                    
+                    // Show success feedback
+                    const $status = $("#emoji-field-status");
+                    $status.removeClass("alert-error").addClass("alert-success");
+                    $status.text("Emoji name updated successfully.");
+                    $status.show();
+                    setTimeout(() => $status.fadeOut(), 3000);
+                },
+                error(xhr) {
+                    // Clear updating flag
+                    $input.removeData("updating");
+                    
+                    // Revert the input value on error
+                    $input.val(original_name.replaceAll("_", " "));
+                    
+                    // Show error message
+                    const $status = $("#emoji-field-status");
+                    $status.removeClass("alert-success").addClass("alert-error");
+                    $status.text(xhr.responseJSON?.msg || "Failed to update emoji name");
+                    $status.show();
+                    setTimeout(() => $status.fadeOut(), 5000);
+                },
+            });
         }
     });
 

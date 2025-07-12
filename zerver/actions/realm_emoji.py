@@ -6,7 +6,10 @@ from django.db.utils import IntegrityError
 from django.utils.timezone import now as timezone_now
 from django.utils.translation import gettext as _
 
-from zerver.lib.emoji import get_emoji_file_name
+from zerver.lib.emoji import (
+    get_emoji_file_name,
+    check_valid_emoji_name,
+)
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.mime_types import INLINE_MIME_TYPES
 from zerver.lib.thumbnail import THUMBNAIL_ACCEPT_IMAGE_TYPES, BadImageError
@@ -85,3 +88,53 @@ def do_remove_realm_emoji(realm: Realm, name: str, *, acting_user: UserProfile |
     )
 
     notify_realm_emoji(realm, realm_emoji_dict)
+
+
+@transaction.atomic(durable=True)
+def do_update_realm_emoji_name(
+    realm: Realm, old_name: str, new_name: str, *, acting_user: UserProfile | None
+) -> RealmEmoji:
+    """
+    Update the name of a custom emoji.
+    """
+    # Validate the new name
+    new_name = new_name.strip().replace(" ", "_")
+    check_valid_emoji_name(new_name)
+
+    # Check if the new name conflicts with an existing emoji
+    if old_name != new_name and RealmEmoji.objects.filter(
+        realm=realm, name=new_name, deactivated=False
+    ).exists():
+        raise JsonableError(_("A custom emoji with this name already exists."))
+
+    # Get the emoji to update
+    try:
+        emoji = RealmEmoji.objects.get(realm=realm, name=old_name, deactivated=False)
+    except RealmEmoji.DoesNotExist:
+        raise JsonableError(_("Emoji '{emoji_name}' does not exist").format(emoji_name=old_name))
+
+    # Store old name for audit log
+    old_emoji_name = emoji.name
+
+    # Update the name
+    emoji.name = new_name
+    emoji.save(update_fields=["name"])
+
+    # Create audit log entry
+    realm_emoji_dict = get_all_custom_emoji_for_realm(realm.id)
+    RealmAuditLog.objects.create(
+        realm=realm,
+        acting_user=acting_user,
+        event_type=AuditLogEventType.REALM_EMOJI_UPDATED,
+        event_time=timezone_now(),
+        extra_data={
+            "realm_emoji": dict(sorted(realm_emoji_dict.items())),
+            "updated_emoji": realm_emoji_dict[str(emoji.id)],
+            "old_name": old_emoji_name,
+            "new_name": new_name,
+        },
+    )
+
+    # Notify all users of the change
+    notify_realm_emoji(realm, realm_emoji_dict)
+    return emoji

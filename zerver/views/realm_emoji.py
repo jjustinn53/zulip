@@ -3,7 +3,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.http import HttpRequest, HttpResponse
 from django.utils.translation import gettext as _
 
-from zerver.actions.realm_emoji import check_add_realm_emoji, do_remove_realm_emoji
+from zerver.actions.realm_emoji import check_add_realm_emoji, do_remove_realm_emoji, do_update_realm_emoji_name
 from zerver.decorator import require_member_or_admin
 from zerver.lib.emoji import check_remove_custom_emoji, check_valid_emoji_name, name_to_codepoint
 from zerver.lib.exceptions import JsonableError, ResourceNotFoundError
@@ -54,6 +54,35 @@ def upload_emoji(
 
     _filename, content_type = get_file_info(emoji_file)
     check_add_realm_emoji(user_profile.realm, emoji_name, user_profile, emoji_file, content_type)
+    return json_success(request)
+
+
+@require_member_or_admin
+@typed_endpoint
+def update_emoji_name(
+    request: HttpRequest, user_profile: UserProfile, *, emoji_name: PathOnly[str]
+) -> HttpResponse:
+    """Update the name of a custom emoji."""
+    try:
+        new_name = request.POST["name"]
+    except KeyError:
+        raise JsonableError(_("Missing 'name' parameter"))
+    
+    if not new_name.strip():
+        raise JsonableError(_("Emoji name is required."))
+    
+    # Check if emoji exists and user has permission to modify it
+    if not RealmEmoji.objects.filter(
+        realm=user_profile.realm, name=emoji_name, deactivated=False
+    ).exists():
+        raise ResourceNotFoundError(
+            _("Emoji '{emoji_name}' does not exist").format(emoji_name=emoji_name)
+        )
+    
+    check_remove_custom_emoji(user_profile, emoji_name)
+    do_update_realm_emoji_name(
+        user_profile.realm, emoji_name, new_name, acting_user=user_profile
+    )
     return json_success(request)
 
 

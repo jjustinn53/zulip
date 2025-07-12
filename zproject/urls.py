@@ -132,7 +132,7 @@ from zerver.views.realm_domains import (
     list_realm_domains,
     patch_realm_domain,
 )
-from zerver.views.realm_emoji import delete_emoji, list_emoji, upload_emoji
+from zerver.views.realm_emoji import delete_emoji, list_emoji, upload_emoji, update_emoji_name
 from zerver.views.realm_export import (
     delete_realm_export,
     export_realm,
@@ -306,6 +306,7 @@ v1_api_and_json_patterns = [
     rest_path(
         "realm/emoji/<path:emoji_name>",
         POST=upload_emoji,
+        PATCH=update_emoji_name,
         DELETE=delete_emoji,
     ),
     # realm/icon -> zerver.views.realm_icon
