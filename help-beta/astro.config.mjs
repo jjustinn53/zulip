@@ -45,17 +45,26 @@ export default defineConfig({
                 optional: true,
                 default: true,
             }),
-            SHOW_BILLING_HELP_LINKS: envField.boolean({
+            CORPORATE_ENABLED: envField.boolean({
                 context: "client",
                 access: "public",
                 optional: true,
                 default: true,
+            }),
+            SUPPORT_EMAIL: envField.string({
+                context: "client",
+                access: "public",
+                optional: true,
+                default: "zulip-admin@example.com",
             }),
         },
     },
     integrations: [
         starlight({
             title: "Zulip help center",
+            components: {
+                Footer: "./src/components/Footer.astro",
+            },
             pagination: false,
             customCss: ["./src/styles/main.css", "./src/styles/steps.css"],
             sidebar: [
