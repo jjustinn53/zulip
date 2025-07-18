@@ -431,6 +431,7 @@ export function setup_upload(config: Config): Uppy<ZulipMeta, TusBody> {
         if (config.textarea) {
             config.textarea().trigger("focus");
         }
+        
         event.target.value = "";
     });
 

@@ -20,11 +20,12 @@ import * as scroll_util from "./scroll_util.ts";
 import * as settings_data from "./settings_data.ts";
 import {current_user} from "./state_data.ts";
 import * as ui_report from "./ui_report.ts";
-// TEST 
 import {type Config, setup_upload} from "./upload.ts";
-// TEST
-import * as upload_widget from "./upload_widget.ts";
 import * as util from "./util.ts";
+
+// Track upload state across dialog functions
+let hasDragDropUpload = false;
+let dragDropUploadData: {file: unknown; response: unknown} | null = null;
 
 const meta = {
     loaded: false,
@@ -157,14 +158,8 @@ export function populate_emoji(): void {
 export function add_custom_emoji_post_render(): void {
     $("#add-custom-emoji-modal .dialog_submit_button").prop("disabled", true);
 
-    // Track whether we have a successful drag-and-drop upload
-    let hasDragDropUpload = false;
-
     function updateSubmitButton(): void {
-        const fileInput = document.querySelector("#emoji_file_input");
-        const hasTraditionalFile = fileInput instanceof HTMLInputElement && fileInput.files && fileInput.files.length > 0;
-        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-        const hasFile = hasTraditionalFile || hasDragDropUpload;
+        const hasFile = hasDragDropUpload;
         
         $("#add-custom-emoji-modal .dialog_submit_button").prop(
             "disabled",
@@ -174,12 +169,7 @@ export function add_custom_emoji_post_render(): void {
 
     $("#add-custom-emoji-form").on("input", "input", updateSubmitButton);
 
-    const get_file_input = function (): JQuery<HTMLInputElement> {
-        return $("#emoji_file_input");
-    };
-
     const $file_name_field = $("#emoji-file-name");
-    const $input_error = $("#emoji_file_input_error");
     const $clear_button = $("#emoji_image_clear_button");
     const $upload_button = $("#emoji_upload_button");
     const $preview_text = $("#emoji_preview_text");
@@ -188,8 +178,8 @@ export function add_custom_emoji_post_render(): void {
 
     $preview_image.hide();
 
-    // Create a config for emoji upload drag-and-drop
-        const emoji_upload_config: Config = {
+    // Create a config for emoji upload using only Uppy
+    const emoji_upload_config: Config = {
         mode: "compose", // Reuse compose mode behavior
         // textarea omitted - we don't want text insertion for emoji uploads
         send_button: () => $("#add-custom-emoji-modal .dialog_submit_button"),
@@ -205,14 +195,24 @@ export function add_custom_emoji_post_render(): void {
         markdown_preview_hide_button: () => $(), // Not applicable for emoji
     };
 
-    // Set up drag-and-drop upload
+    // Set up Uppy for all uploads (drag-and-drop AND file picker)
     const uppy_instance = setup_upload(emoji_upload_config);
+
+    // Make the upload button trigger the file picker
+    $upload_button.on("click", (e) => {
+        e.preventDefault();
+        const fileInput = document.querySelector("#emoji_file_input");
+        if (fileInput instanceof HTMLInputElement) {
+            fileInput.click();
+        }
+    });
 
     // When files are successfully uploaded, update the UI
     uppy_instance.on("upload-success", (file, response) => {
         if (file && response.body) {
-            // Mark that we have a successful drag-and-drop upload
+            // Mark that we have a successful upload
             hasDragDropUpload = true;
+            dragDropUploadData = {file, response};
             
             // Auto-fill emoji name with filename (without extension) if empty
             const $emojiName = $("#emoji_name");
@@ -221,7 +221,10 @@ export function add_custom_emoji_post_render(): void {
                 $emojiName.val(filenameWithoutExtension);
             }
             
-            // Show preview
+            // Show file name and preview
+            if (file.name) {
+                $file_name_field.val(file.name);
+            }
             $placeholder_icon.hide();
             $preview_image.show();
             $preview_text.hide();
@@ -231,32 +234,18 @@ export function add_custom_emoji_post_render(): void {
         }
     });
 
-    // Still use the upload widget for the basic file input functionality
-    upload_widget.build_widget(
-        get_file_input,
-        $file_name_field,
-        $input_error,
-        $clear_button,
-        $upload_button,
-        $preview_text,
-        $preview_image,
-    );
-
-    get_file_input().on("input", () => {
-        $placeholder_icon.hide();
-        $preview_image.show();
-    });
-
     $preview_text.show();
     $clear_button.on("click", (e) => {
         e.stopPropagation();
         e.preventDefault();
 
-        // Reset drag-and-drop upload state
+        // Reset upload state
         hasDragDropUpload = false;
+        dragDropUploadData = null;
         
+        // Clear UI
+        $file_name_field.val("");
         $("#add-custom-emoji-modal .dialog_submit_button").prop("disabled", true);
-
         $preview_image.hide();
         $placeholder_icon.show();
         $preview_text.show();
@@ -317,11 +306,29 @@ function show_modal(): void {
         }
 
         const formData = new FormData();
-        const files = util.the($<HTMLInputElement>("input#emoji_file_input")).files;
-        assert(files !== null);
         
-        for (const [i, file] of [...files].entries()) {
-            formData.append("file-" + i, file);
+        // Use Uppy upload data
+        if (!hasDragDropUpload || !dragDropUploadData) {
+            ui_report.client_error(
+                $t_html({defaultMessage: "Failed: Please select a file to upload."}),
+                $emoji_status,
+            );
+            dialog_widget.hide_dialog_spinner();
+            return;
+        }
+
+        // Extract the original file from the UppyFile
+        const uppyFile = dragDropUploadData.file;
+        // Check if the file has a 'data' property containing the original File
+        if (uppyFile && typeof uppyFile === "object" && "data" in uppyFile && uppyFile.data instanceof File) {
+            formData.append("file", uppyFile.data);
+        } else {
+            ui_report.client_error(
+                $t_html({defaultMessage: "Failed: Could not access uploaded file data."}),
+                $emoji_status,
+            );
+            dialog_widget.hide_dialog_spinner();
+            return;
         }
 
         if (is_default_emoji(emoji.name)) {
@@ -363,6 +370,9 @@ function show_modal(): void {
         on_click: add_custom_emoji,
         post_render: add_custom_emoji_post_render,
         on_shown() {
+            // Reset upload state when modal opens
+            hasDragDropUpload = false;
+            dragDropUploadData = null;
             $("#emoji_name").trigger("focus");
         },
     });
