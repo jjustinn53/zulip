@@ -12,6 +12,7 @@ from django.utils.translation import gettext as _
 from zerver.lib.default_streams import get_default_stream_ids_for_realm
 from zerver.lib.exceptions import (
     CannotAdministerChannelError,
+    CannotSetTopicsPolicyError,
     IncompatibleParametersError,
     JsonableError,
     OrganizationOwnerRequiredError,
@@ -24,6 +25,7 @@ from zerver.lib.stream_subscription import (
 from zerver.lib.stream_traffic import get_average_weekly_stream_traffic, get_streams_traffic
 from zerver.lib.string_validation import check_stream_name
 from zerver.lib.timestamp import datetime_to_timestamp
+from zerver.lib.topic import get_topic_display_name
 from zerver.lib.types import APIStreamDict, UserGroupMembersData
 from zerver.lib.user_groups import (
     UserGroupMembershipDetails,
@@ -88,6 +90,8 @@ class StreamDict(TypedDict, total=False):
     topics_policy: int | None
     can_add_subscribers_group: UserGroup | None
     can_administer_channel_group: UserGroup | None
+    can_delete_any_message_group: UserGroup | None
+    can_delete_own_message_group: UserGroup | None
     can_move_messages_out_of_channel_group: UserGroup | None
     can_move_messages_within_channel_group: UserGroup | None
     can_send_message_group: UserGroup | None
@@ -121,6 +125,33 @@ def get_stream_topics_policy(realm: Realm, stream: Stream) -> int:
     if stream.topics_policy == StreamTopicsPolicyEnum.inherit.value:
         return realm.topics_policy
     return stream.topics_policy
+
+
+def validate_topics_policy(
+    topics_policy: str | None,
+    user_profile: UserProfile,
+    # Pass None when creating a channel and the channel being edited when editing a channel's settings
+    stream: Stream | None = None,
+) -> StreamTopicsPolicyEnum | None:
+    if topics_policy is not None and isinstance(topics_policy, StreamTopicsPolicyEnum):
+        if (
+            topics_policy != StreamTopicsPolicyEnum.inherit
+            and not user_profile.can_set_topics_policy()
+        ):
+            raise JsonableError(_("Insufficient permission"))
+
+        # Cannot set `topics_policy` to `empty_topic_only` when there are messages
+        # in non-empty topics in the current channel.
+        if (
+            stream is not None
+            and topics_policy == StreamTopicsPolicyEnum.empty_topic_only
+            and channel_has_named_topics(stream)
+        ):
+            raise CannotSetTopicsPolicyError(
+                get_topic_display_name("", user_profile.default_language)
+            )
+        return topics_policy
+    return None
 
 
 def get_default_value_for_history_public_to_subscribers(
@@ -319,6 +350,8 @@ def create_stream_if_needed(
     topics_policy: int | None = None,
     can_add_subscribers_group: UserGroup | None = None,
     can_administer_channel_group: UserGroup | None = None,
+    can_delete_any_message_group: UserGroup | None = None,
+    can_delete_own_message_group: UserGroup | None = None,
     can_move_messages_out_of_channel_group: UserGroup | None = None,
     can_move_messages_within_channel_group: UserGroup | None = None,
     can_send_message_group: UserGroup | None = None,
@@ -447,6 +480,8 @@ def create_streams_if_needed(
             topics_policy=stream_dict.get("topics_policy", None),
             can_add_subscribers_group=stream_dict.get("can_add_subscribers_group", None),
             can_administer_channel_group=stream_dict.get("can_administer_channel_group", None),
+            can_delete_any_message_group=stream_dict.get("can_delete_any_message_group", None),
+            can_delete_own_message_group=stream_dict.get("can_delete_own_message_group", None),
             can_move_messages_out_of_channel_group=stream_dict.get(
                 "can_move_messages_out_of_channel_group", None
             ),
@@ -1131,6 +1166,24 @@ def can_access_stream_history_by_id(user_profile: UserProfile, stream_id: int) -
     return can_access_stream_history(user_profile, stream)
 
 
+def can_delete_any_message_in_channel(user_profile: UserProfile, stream: Stream) -> bool:
+    return user_has_permission_for_group_setting(
+        stream.can_delete_any_message_group_id,
+        user_profile,
+        Stream.stream_permission_group_settings["can_delete_any_message_group"],
+        direct_member_only=False,
+    )
+
+
+def can_delete_own_message_in_channel(user_profile: UserProfile, stream: Stream) -> bool:
+    return user_has_permission_for_group_setting(
+        stream.can_delete_own_message_group_id,
+        user_profile,
+        Stream.stream_permission_group_settings["can_delete_own_message_group"],
+        direct_member_only=False,
+    )
+
+
 def can_move_messages_out_of_channel(user_profile: UserProfile, stream: Stream) -> bool:
     if user_profile.is_realm_admin:
         return True
@@ -1610,6 +1663,12 @@ def stream_to_dict(
     can_administer_channel_group = get_group_setting_value_for_register_api(
         stream.can_administer_channel_group_id, anonymous_group_membership
     )
+    can_delete_any_message_group = get_group_setting_value_for_register_api(
+        stream.can_delete_any_message_group_id, anonymous_group_membership
+    )
+    can_delete_own_message_group = get_group_setting_value_for_register_api(
+        stream.can_delete_own_message_group_id, anonymous_group_membership
+    )
     can_move_messages_out_of_channel_group = get_group_setting_value_for_register_api(
         stream.can_move_messages_out_of_channel_group_id, anonymous_group_membership
     )
@@ -1637,6 +1696,8 @@ def stream_to_dict(
         is_archived=stream.deactivated,
         can_add_subscribers_group=can_add_subscribers_group,
         can_administer_channel_group=can_administer_channel_group,
+        can_delete_any_message_group=can_delete_any_message_group,
+        can_delete_own_message_group=can_delete_own_message_group,
         can_move_messages_out_of_channel_group=can_move_messages_out_of_channel_group,
         can_move_messages_within_channel_group=can_move_messages_within_channel_group,
         can_send_message_group=can_send_message_group,

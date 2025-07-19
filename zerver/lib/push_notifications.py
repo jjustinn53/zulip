@@ -1,7 +1,6 @@
 # See https://zulip.readthedocs.io/en/latest/subsystems/notifications.html
 
 import asyncio
-import base64
 import copy
 import logging
 import re
@@ -9,7 +8,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from email.headerregistry import Address
 from functools import cache
-from typing import TYPE_CHECKING, Any, Optional, TypeAlias, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypeAlias, Union
 
 import lxml.html
 import orjson
@@ -25,7 +24,7 @@ from firebase_admin import exceptions as firebase_exceptions
 from firebase_admin import initialize_app as firebase_initialize_app
 from firebase_admin import messaging as firebase_messaging
 from firebase_admin.messaging import UnregisteredError as FCMUnregisteredError
-from typing_extensions import override
+from typing_extensions import TypedDict, override
 
 from analytics.lib.counts import COUNT_STATS, do_increment_logging_stat
 from zerver.actions.realm_settings import (
@@ -54,6 +53,7 @@ from zerver.models import (
     AbstractPushDeviceToken,
     ArchivedMessage,
     Message,
+    PushDevice,
     PushDeviceToken,
     Realm,
     Recipient,
@@ -73,26 +73,22 @@ logger = logging.getLogger(__name__)
 if settings.ZILENCER_ENABLED:
     from zilencer.models import RemotePushDeviceToken, RemoteZulipServer
 
+# Time (in seconds) for which the server should retry registering
+# a push device to the bouncer. 24 hrs is a good time limit because
+# a day is longer than any minor outage.
+PUSH_REGISTRATION_LIVENESS_TIMEOUT = 24 * 60 * 60
+
+
 DeviceToken: TypeAlias = Union[PushDeviceToken, "RemotePushDeviceToken"]
-
-
-# We store the token as b64, but apns-client wants hex strings
-def b64_to_hex(data: str) -> str:
-    return base64.b64decode(data).hex()
-
-
-def hex_to_b64(data: str) -> str:
-    return base64.b64encode(bytes.fromhex(data)).decode()
 
 
 def validate_token(token_str: str, kind: int) -> None:
     if token_str == "" or len(token_str) > 4096:
         raise JsonableError(_("Empty or invalid length token"))
     if kind == PushDeviceToken.APNS:
-        # Validate that we can actually decode the token.
         try:
-            b64_to_hex(token_str)
-        except Exception:
+            bytes.fromhex(token_str)
+        except ValueError:
             raise JsonableError(_("Invalid APNS token"))
 
 
@@ -1580,3 +1576,21 @@ class HostnameAlreadyInUseBouncerError(JsonableError):
         # This message is not read by any of the client apps, just potentially displayed
         # via server administration tools, so it doesn't need translations.
         return "A server with hostname {hostname} already exists"
+
+
+class PushDeviceInfoDict(TypedDict):
+    status: Literal["active", "pending", "failed"]
+    error_code: str | None
+
+
+def get_push_devices(user_profile: UserProfile) -> dict[str, PushDeviceInfoDict]:
+    # We intentionally don't try to save a database query
+    # if `push_notifications_configured()` is False, in order to avoid
+    # risk of clients deleting their Account records if the server
+    # has its mobile notifications configuration temporarily disabled.
+    rows = PushDevice.objects.filter(user=user_profile)
+
+    return {
+        str(row.push_account_id): {"status": row.status, "error_code": row.error_code}
+        for row in rows
+    }

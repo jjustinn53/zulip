@@ -343,6 +343,7 @@ const testSub = {
     subscribed: true,
     is_recently_active: true,
     can_send_message_group: everyone_group.id,
+    is_muted: true,
 };
 
 const announceSub = {
@@ -526,14 +527,14 @@ test_ui("narrowing", ({mock_template}) => {
 });
 
 test_ui("focusout_user_filter", () => {
-    stream_list.set_event_handlers({narrow_on_stream_click() {}});
+    stream_list.set_event_handlers({show_channel_feed() {}});
     const e = {};
     const click_handler = $(".stream-list-filter").get_on_handler("focusout");
     click_handler(e);
 });
 
 test_ui("focus_user_filter", () => {
-    stream_list.set_event_handlers({narrow_on_stream_click() {}});
+    stream_list.set_event_handlers({show_channel_feed() {}});
 
     initialize_stream_data();
     stream_list.build_stream_list();
@@ -733,7 +734,6 @@ test_ui("rename_stream", ({mock_template, override}) => {
             is_web_public: undefined,
             color: payload.color,
             pin_to_top: true,
-            hide_unread_count: true,
             can_post_messages: true,
             is_empty_topic_only_channel: false,
         });

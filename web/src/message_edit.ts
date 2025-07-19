@@ -48,6 +48,7 @@ import * as message_store from "./message_store.ts";
 import type {Message} from "./message_store.ts";
 import * as message_viewport from "./message_viewport.ts";
 import * as onboarding_steps from "./onboarding_steps.ts";
+import {page_params} from "./page_params.ts";
 import * as people from "./people.ts";
 import * as resize from "./resize.ts";
 import * as rows from "./rows.ts";
@@ -215,6 +216,14 @@ export function is_content_editable(message: Message, edit_limit_seconds_buffer 
     return false;
 }
 
+export function remaining_content_edit_time(message: Message): number {
+    if (!is_content_editable(message)) {
+        return 0;
+    }
+    const limit_seconds = realm.realm_message_content_edit_limit_seconds ?? Infinity;
+    return limit_seconds + (message.timestamp - Date.now() / 1000);
+}
+
 export function is_message_sent_by_my_bot(message: Message): boolean {
     const user = people.get_by_user_id(message.sender_id);
     if (!user.is_bot || user.bot_owner_id === null) {
@@ -227,12 +236,31 @@ export function is_message_sent_by_my_bot(message: Message): boolean {
 }
 
 export function get_deletability(message: Message): boolean {
+    if (page_params.is_spectator) {
+        return false;
+    }
+
     if (message.type === "stream" && stream_data.is_stream_archived(message.stream_id)) {
         return false;
     }
 
     if (settings_data.user_can_delete_any_message()) {
         return true;
+    }
+
+    if (message.type === "stream") {
+        const stream = stream_data.get_sub_by_id(message.stream_id);
+        assert(stream !== undefined);
+
+        const can_delete_any_message_in_channel =
+            settings_data.user_has_permission_for_group_setting(
+                stream.can_delete_any_message_group,
+                "can_delete_any_message_group",
+                "stream",
+            );
+        if (can_delete_any_message_in_channel) {
+            return true;
+        }
     }
 
     if (!message.sent_by_me && !is_message_sent_by_my_bot(message)) {
@@ -242,7 +270,22 @@ export function get_deletability(message: Message): boolean {
         return false;
     }
     if (!settings_data.user_can_delete_own_message()) {
-        return false;
+        if (message.type !== "stream") {
+            return false;
+        }
+
+        const stream = stream_data.get_sub_by_id(message.stream_id);
+        assert(stream !== undefined);
+
+        const can_delete_own_message_in_channel =
+            settings_data.user_has_permission_for_group_setting(
+                stream.can_delete_own_message_group,
+                "can_delete_own_message_group",
+                "stream",
+            );
+        if (!can_delete_own_message_in_channel) {
+            return false;
+        }
     }
 
     if (realm.realm_message_content_delete_limit_seconds === null) {
@@ -300,6 +343,15 @@ export function is_stream_editable(message: Message, edit_limit_seconds_buffer =
 
 export function can_move_message(message: Message): boolean {
     return is_topic_editable(message) || is_stream_editable(message);
+}
+
+export function remaining_message_move_time(message: Message): number {
+    if (!can_move_message(message)) {
+        return 0;
+    }
+
+    const limit_seconds = realm.realm_move_messages_within_stream_limit_seconds ?? Infinity;
+    return limit_seconds + (message.timestamp - Date.now() / 1000);
 }
 
 export function stream_and_topic_exist_in_edit_history(
@@ -1687,7 +1739,7 @@ export function move_topic_containing_message_to_stream(
     }
     if (currently_topic_editing_message_ids.includes(message_id)) {
         ui_report.client_error(
-            $t_html({defaultMessage: "A Topic Move already in progress."}),
+            $t_html({defaultMessage: "A topic move is already in progress."}),
             $("#move_topic_modal #dialog_error"),
         );
         return;
